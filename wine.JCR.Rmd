@@ -1,0 +1,304 @@
+---
+title: "wine"
+output: pdf_document
+---
+
+
+```{r}
+library(tidyverse)
+library(moderndive)
+library(ggplot2)
+library(ggrepel)
+library(grid)
+library(gridExtra)
+library(GGally)
+library(skimr)
+library(kableExtra)
+library(ggpubr)
+library(corrplot)
+library(gapminder)
+library(sjPlot)
+library(stats)
+library(jtools)
+```
+
+
+```{r}
+wine = read.csv("C:/Users/litia/Desktop/UofG/5085 Data Analysis Skills (Level M)/Group project 2/Group-project-2/dataset18f.csv", header = T)
+
+summary(wine)
+```
+
+```{r}
+wine_f = na.omit(wine)
+
+glimpse(wine_f)
+```
+Which properties of wine influence whether the number of points awarded is greater than
+90?
+
+```{r}
+wpoint = wine_f %>%
+  filter(points>=90)
+ 
+summary(wpoint)
+
+glimpse(wpoint)
+```
+
+```{r,add grade which is 1-0 variable}
+wine_f[,3:4]=lapply(wine_f[,3:4],as.numeric)
+glimpse(wine_f)
+grade=ifelse(wine_f$points>=90,'1','0')
+wine_ff=wine_f %>% 
+  mutate(grade) %>% 
+  na.omit()
+
+getmode = function(v) {
+ uniqv = unique(v)
+ uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+
+result = getmode(wine_ff$price)
+print(result)
+```
+
+##price-grade
+```{r price plot}
+wine.price=wine_ff %>% 
+  dplyr::select(grade,price)
+ggplot(data=wine.price,aes(x=grade,y=price,fill=grade))+
+  geom_boxplot()
+summary(wine.price)
+```
+
+```{r price logodd}
+wine.price$grade=as.numeric(wine.price$grade)
+model=glm(grade~price,data=wine.price,
+          family = binomial(link="logit"))
+summary(model)
+```
+
+
+```{r}
+confint(model) %>% 
+  kable()
+```
+
+```{r endpoints}
+mod.price.coef.logodds=model %>% 
+  summary() %>% 
+  coef()
+price.logodds.lower=mod.price.coef.logodds[2,1]-1.96*mod.price.coef.logodds[2,2]
+price.logodds.upper=mod.price.coef.logodds[2,1]+1.96*mod.price.coef.logodds[2,2]
+table(price.logodds.lower,price.logodds.upper)
+```
+
+```{r logodds plot}
+plot_model(model,show.values=TRUE,transform=NULL,title="Log-Odds(price)",show.p=FALSE)
+```
+
+```{r add price.logodds}
+wine.price=wine.price %>% 
+  mutate(price.logodds=predict(model))
+```
+
+```{r price odd}
+price.odds.lower=exp(price.logodds.lower)
+price.odds.upper=exp(price.logodds.upper)
+
+plot_model(model,show.values = TRUE,axis.lim=c(1.05,1.07),title="Odds(price)",show.p = FALSE)
+
+wine.price=wine.price %>% 
+  mutate(price.odds=exp(price.logodds))
+```
+
+```{r price probabilities}
+wine.price=wine.price %>% 
+  mutate(price.probs=fitted(model))
+
+ggplot(data=wine.price,aes(x=price,y=price.probs))+
+  geom_smooth(method="glm",method.args=list(family="binomial"),se=FALSE)+
+  labs(x="price",y="probability of price")
+
+```
+
+##country-grade
+
+After the numeric explanatory of variable price, we used country as our categorical variable. We pick the grade above 90 as 0 and below 90 as 1. Calculate the proportion of each country. 
+
+```{r country plot}
+library(janitor)
+wine.country=wine_ff %>% 
+  dplyr::select(grade,country)
+
+country.tab=wine_ff %>% 
+  tabyl(country,grade) %>% 
+  adorn_percentages() %>% 
+  adorn_pct_formatting() %>% 
+  adorn_ns()
+
+table(sort(wine.country$country))
+
+fre = as.data.frame(table(wine.country$country))
+colnames(fre) = c('country',"frequency")
+
+library('scales')
+fre_country = fre %>%
+  mutate(proportion = frequency/sum(fre$frequency))
+fre_country$proportion = percent(fre_country$proportion)
+glimpse(fre_country)
+
+library(gcookbook)
+ggplot(data=country.tab,aes(x=country,y=country.tab$`0`, fill = country))+
+  geom_col()+
+  labs(x = "Country", y = "Proportion of the rating over 90", title = "Distribution of countries for the wine rating over 90")
+
+
+```
+Used barplot to see the distribution of the countries for the proportion of the wine rating that is over 90. It shows that the Chile has the highest percentage. England and Croatia have the lowest percentage. Some of the data are really small such as England, so we cannot just make a direct conclusion based on this.
+
+**The logistic regression model is given by:**
+```{r}
+wine.country$grade = as.numeric(wine.country$grade)
+
+model.country= glm(grade ~ country, data = wine.country, family = binomial(link = "logit"))
+
+model.country %>%
+  summary()
+```
+
+Here is the logistic regression model for the countries relevant to the rating grade. Georgia、Hungary、and Spain do not have a huge influence. For example: the log-odds of the wine rating over 90 increase by 0.6645 if they are in the country of US. 
+
+The log-odds of the wine rating over 90 increase by 0.2719 if they are in the country of Australia. It provides with a point estimate of how the log-odds changes with countries.
+
+......
+
+
+
+```{r}
+confint(model.country) %>%
+  kable()
+```
+
+The 95% confidence interval for these log-odds are shown above. Those with NA in one of the columns indicate that they have wines only rating over 90 or below 90. 
+
+For example, the US has 95% confidence interval (0.1188282, 1.2578147) with corresponding log-odds of 0.6645.
+
+
+```{r}
+mod.logodd.country = model.country %>%
+                            summary() %>%
+                            coef()
+mod.logodd.country
+
+country.logodds.lower = mod.logodd.country[, "Estimate"] - 
+                        1.96 * mod.logodd.country[, "Std. Error"]
+
+country.logodds.upper = mod.logodd.country[, "Estimate"] + 
+                        1.96 * mod.logodd.country[, "Std. Error"]
+
+plot_model(model.country, show.values = TRUE, transform = NULL,
+           title = "Log-Odds (Country)", show.p = FALSE)
+
+
+```
+It can be shown graphically above. 
+
+
+
+```{r}
+wine.country = wine.country %>%
+  mutate(logodds.c = predict(model.country))
+```
+
+**ODDS**
+
+```{r}
+model.country %>%
+ coef() %>%
+  exp()
+```
+ regression coefficients.
+The (Intercept) gives us the odds of the grade over 90 given that they are in the country group, 0.3333333. The odds of the grade over 90 given they are not in the countries are for example Australia 1.3125 times greater than the odds if they were in the Australia.
+
+Also, for the US, the odds of the grade over 90 given they are not in the US is 1.94358 times greater than the odds if they were in the US.
+
+
+##specific step
+The odds of the grade over 90 given that they are in the US can be obtained as follows 0.6478599:
+```{r}
+uswine = wine.country %>%
+  filter(country == "US") %>%
+  summarize(n()) %>%
+  pull()
+
+wine.country
+# the number of male instructors in the minority
+uswine.1 = wine.country %>%
+  filter(country == "US", grade == '1') %>%
+  summarize(n()) %>%
+  pull()
+
+uswine.1
+# the proportion/probability of males in the minority
+prob.uswine = uswine.1 / uswine
+odds.uswine = prob.uswine / (1 - prob.uswine)
+odds.uswine
+```
+The odds-ratio of an grade over 90 not in the US compared to the in the US is found as follows 0.7810983:
+```{r}
+pnotus = wine.country %>%
+  filter(country != "US") %>%
+  summarize(n()) %>%
+  pull()
+
+# the number of male instructors not in the minority
+pnotus.1 = wine.country %>%
+  filter(country != "US", grade == "1") %>%
+  summarize(n()) %>%
+  pull()
+
+# the proportion/probability of males not in the minority
+prob.notus = pnotus.1 / pnotus
+odds.notus = prob.notus / (1 - prob.notus)
+odds.ratio = odds.notus / odds.uswine
+odds.ratio
+```
+
+95% confidence interval for the odds
+```{r}
+us.odds.lower = exp(country.logodds.lower)
+us.odds.upper = exp(country.logodds.upper)
+plot_model(model.country, show.values = TRUE,
+           title = "Odds (US instructor)", show.p = FALSE)
+```
+point estimate for the odds-ratio is 0.78.
+
+
+odds to the data set
+
+```{r}
+wine.country = wine.country %>%
+  mutate(odds.US = exp(logodds.c))
+```
+
+```{r}
+plogis(mod.logodd.country["(Intercept)", "Estimate"])
+```
+
+##Price and country
+
+```{r}
+wine.model = wine_ff %>% 
+  dplyr::select(grade,price,country,province,variety,winery)
+wine.model$grade = as.numeric(wine.model$grade) 
+model_f=glm(grade~.,data=wine.model,
+          family = binomial(link="logit"))
+summary(model_f)
+```
+
+
+
+
+
